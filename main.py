@@ -28,6 +28,9 @@ if resources:
     # Crear una carpeta para almacenar los archivos Excel individuales
     excel_folder = 'archivos_excel'
     os.makedirs(excel_folder, exist_ok=True)
+    
+    excel_folder = 'out'
+    os.makedirs(excel_folder, exist_ok=True)
 
     # Descargar y descomprimir todos los archivos ZIP
     for resource in resources:
