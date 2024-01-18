@@ -1,68 +1,83 @@
 import requests
 import pandas as pd
 import os
+import zipfile
 
-# Obtener el JSON de la API
+# Definiciones
 package_id = 33245
 url = f"https://datos.gob.cl/api/action/package_show?id={package_id}"
+zip_folder = 'archivos_zip'
+unpack_folder = 'unpack'
+csv_folder = 'archivos_csv'
 
+# Crear carpetas si no existen
+os.makedirs(zip_folder, exist_ok=True)
+os.makedirs(unpack_folder, exist_ok=True)
+os.makedirs(csv_folder, exist_ok=True)
+
+# Descargar archivos ZIP
 try:
     response = requests.get(url)
     response.raise_for_status()
     data = response.json()
     resources = data['result']['resources']
+
+    for resource in resources:
+        if resource['format'].lower() == 'zip':
+            file_name = resource['name'].strip() + '.zip'
+            file_url = resource['url']
+            file_path = os.path.join(zip_folder, file_name)
+            
+            if not os.path.exists(file_path):
+                with open(file_path, 'wb') as file:
+                    file.write(requests.get(file_url).content)
+                print(f"Archivo '{file_name}' descargado.")
+            else:
+                print(f"Archivo '{file_name}' ya existe, saltando la descarga.")
 except (requests.exceptions.RequestException, ValueError) as e:
     print(f"Error al obtener el JSON: {e}")
-    resources = []
 
-if resources:
-    # Crear una carpeta para almacenar los archivos ZIP
-    zip_folder = 'archivos_zip'
-    os.makedirs(zip_folder, exist_ok=True)
+# Procesar y combinar archivos descomprimidos
+all_dataframes = []
+for zip_file in os.listdir(zip_folder):
+    if zip_file.endswith('.zip'):
+        zip_path = os.path.join(zip_folder, zip_file)
+        zip_unpack_folder = os.path.join(unpack_folder, zip_file[:-4]) # Carpeta específica para este ZIP
+        os.makedirs(zip_unpack_folder, exist_ok=True)
 
-    # Iterar sobre los recursos
-    for resource in resources:
-        file_name = resource['name']
-        file_url = resource['url']
+        dataframes_zip = []  # DataFrames específicos de este ZIP
 
-        # Limpieza del nombre del archivo para evitar problemas con espacios
-        cleaned_file_name = file_name.strip()
+        try:
+            with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                zip_ref.extractall(zip_unpack_folder)
+            print(f"Archivo '{zip_file}' descomprimido en '{zip_unpack_folder}'.")
 
-        # Verificar si el archivo ya existe
-        file_path = os.path.join(zip_folder, cleaned_file_name)
-        if not os.path.exists(file_path):
-            # Descargar el archivo solo si no existe
-            with open(file_path, 'wb') as file:
-                file.write(requests.get(file_url).content)
-            print(f"Archivo '{cleaned_file_name}' Descargado.")
-        else:
-            print(f"Archivo '{cleaned_file_name}' ya existe, saltando la descarga.")
+            # Procesar y combinar archivos .txt de este ZIP
+            for file_name in os.listdir(zip_unpack_folder):
+                if file_name.endswith('.txt'):
+                    file_path = os.path.join(zip_unpack_folder, file_name)
+                    try:
+                        df = pd.read_csv(file_path, sep='\t', encoding='utf-8')
+                        dataframes_zip.append(df)
+                    except Exception as e:
+                        print(f"No se pudo procesar el archivo {file_name}: {e}")
 
-# Combinar archivos en un solo DataFrame
-dfs = []
+            if dataframes_zip:
+                # Crear un DataFrame para este ZIP y guardarlo como CSV
+                df_zip = pd.concat(dataframes_zip, ignore_index=True)
+                zip_csv_file = os.path.join(csv_folder, zip_file[:-4] + '.csv')
+                df_zip.to_csv(zip_csv_file, index=False, encoding='utf-8')
+                print(f"Archivo CSV creado para ZIP '{zip_file}': {zip_csv_file}")
+                all_dataframes.append(df_zip)
 
-for root, dirs, files in os.walk(zip_folder):
-    for file in files:
-        file_path = os.path.join(root, file)
-        if file_path.lower().endswith('.txt'):  # Assuming all files are in text format
-            # Read the text file and append it to the list of DataFrames
-            df = pd.read_csv(file_path, delimiter='\t')  # Adjust the delimiter if necessary
-            dfs.append(df)
+        except zipfile.BadZipFile:
+            print(f"El archivo '{zip_file}' no es un ZIP válido o está corrupto.")
 
-# Divide el DataFrame en trozos más pequeños
-chunk_size = 50000  # Número de filas por trozo
-num_chunks = len(dfs) // chunk_size + 1
-
-# Crear una carpeta para almacenar los archivos temporales
-tempolares_folder = 'tempolares'
-os.makedirs(tempolares_folder, exist_ok=True)
-
-for i in range(num_chunks):
-    start_idx = i * chunk_size
-    end_idx = min((i + 1) * chunk_size, len(dfs))
-    chunk_df = pd.concat(dfs[start_idx:end_idx], ignore_index=True)
-
-    # Guarda cada trozo como un archivo CSV separado en la carpeta "tempolares"
-    csv_chunk_path = os.path.join(tempolares_folder, f'combined_data_chunk_{i + 1}.csv')
-    chunk_df.to_csv(csv_chunk_path, index=False)
-    print(f'Data chunk {i + 1} saved to {csv_chunk_path}')
+# Concatenar y exportar a CSV unificado
+if all_dataframes:
+    final_df = pd.concat(all_dataframes, ignore_index=True)
+    combined_csv_file = os.path.join(csv_folder, 'datos_unificados.csv')
+    final_df.to_csv(combined_csv_file, index=False, encoding='utf-8')
+    print(f"Archivo CSV combinado creado: {combined_csv_file}")
+else:
+    print("No se encontraron archivos para procesar.")
