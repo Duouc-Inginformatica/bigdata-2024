@@ -45,7 +45,7 @@ for zip_file in os.listdir(zip_folder):
         zip_unpack_folder = os.path.join(unpack_folder, zip_file[:-4]) # Carpeta específica para este ZIP
         os.makedirs(zip_unpack_folder, exist_ok=True)
 
-        dataframes_zip = []  # DataFrames específicos de este ZIP
+        dataframes_zip = []  # DataFrames para todos los zips
 
         try:
             with zipfile.ZipFile(zip_path, 'r') as zip_ref:
@@ -63,7 +63,7 @@ for zip_file in os.listdir(zip_folder):
                         print(f"No se pudo procesar el archivo {file_name}: {e}")
 
             if dataframes_zip:
-                # Crear un DataFrame para este ZIP y guardarlo como CSV
+                # crear un conjuntos de datos de los TXT a csv
                 df_zip = pd.concat(dataframes_zip, ignore_index=True)
                 zip_csv_file = os.path.join(csv_folder, zip_file[:-4] + '.csv')
                 df_zip.to_csv(zip_csv_file, index=False, encoding='utf-8')
